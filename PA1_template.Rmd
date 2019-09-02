@@ -1,25 +1,106 @@
 ---
-title: "Reproducible Research: Peer Assessment 1"
-output: 
-  html_document:
-    keep_md: true
+title: "Reproducible Research - Course Project 1"
+author: "Ian Chua"
+date: "9/1/2019"
+output: html_document
 ---
 
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
 
-## Loading and preprocessing the data
+# Loading in data
 
+The following chunk of code loads the required libraries, reads in the activity data, and converts the variables into the appropriate format.
 
+```{r loaddata}
+library(tidyverse)
+library(lubridate)
+data <- read.csv(file = "activity.csv")
+data$date <- as.Date(data$date)
+data <- tbl_df(data)
+```
 
-## What is mean total number of steps taken per day?
+# 1. What is mean total number of steps taken per day?
 
+The dataset is first grouped by "date", and the total number of steps taken per day is calculated. Following which, a histogram is plot based on the total number of steps taken.
 
+```{r stepsperday}
+bydate <- group_by(data,date)
+summarised <- summarise_all(bydate,sum)
+hist(summarised$steps, xlab = "Number of Steps in a day", main = "Histogram of Number of Steps per day")
+```
 
-## What is the average daily activity pattern?
+The mean (10,766.19) and median (10,765) total steps per day is calculated.
+```{r meanmedian}
+mean(summarised$steps, na.rm = TRUE)
+median(summarised$steps, na.rm = TRUE)
+```
 
+# 2. What is the average daily activity pattern?
 
+The dataset is first groupd by "interval", and the average number of steps taken per interval is calculated. A time series plot is then done on Steps against Time.
+```{r dailypattern}
+byinterval <- group_by(data,interval)
+byinterval$time <- as.POSIXct(sprintf("%04d.00", byinterval$interval), format="%H%M")
+summarised2 <- summarise_all(byinterval, mean, na.rm = TRUE)
+plot(x=summarised2$time, y=summarised2$steps, type = "l", xlab = "Time of day", ylab = "Steps", main = "Plot of steps for 5 minute intervals")
+```
 
-## Imputing missing values
+The max number of steps in a given 5 minute interval is 206. The corresponding time is 8:35am.
+```{r maxinterval}
+max(summarised2$steps)
+summarised2$interval[which.max(summarised2$steps)]
+```
 
+# 3. Imputing missing values
 
+To find out how many NA values are there, the is.na function is called on the individual variables, with a sum function. It appears that there are 2,304 NA values for steps, and 0 NA values for date and interval.
+```{r NAvalues}
+apply(apply(data,2,is.na),2,sum)
+```
 
-## Are there differences in activity patterns between weekdays and weekends?
+A glance at the dataset reveals that there are days where not a single value of steps taken is recorded. Hence, a strategy of using the mean at each 5-minute interval is used.
+
+```{r imputingNA}
+imputed <- left_join(data,summarised2[,1:2],by = "interval")
+names(imputed) <- c("steps","date","interval","meansteps")
+imputed$steps[is.na(imputed$steps)] <- imputed$meansteps[is.na(imputed$steps)]
+print(imputed)
+groupimputed <- group_by(imputed,date)
+```
+
+After imputing the missing data, a histogram is plotted for the total number of steps in a day.
+```{r plothist}
+summarised3 <- summarise_all(groupimputed,sum)
+hist(summarised3$steps, xlab = "Number of Steps in a day", main = "Histogram of Number of Steps per day")
+```
+
+The mean and median of the new dataset is calculated. Compared with the dataset with missing values, only the median changed, which is now 10766.19, same as the mean.
+```{r meanmedian2}
+mean(summarised3$steps, na.rm = TRUE)
+median(summarised3$steps, na.rm = TRUE)
+```
+
+# 4. Are there differences in activity patterns between weekdays and weekends?
+
+A separate column is created to track the day of the week, which is then converted to either a weekday or a weekend.
+```{r weekday}
+imputed$dayofweek <- wday(imputed$date, week_start = getOption("lubridate.week.start",1))
+imputed$dayofweek[imputed$dayofweek>5] <- as.character("Weekend") 
+imputed$dayofweek[imputed$dayofweek<6] <- as.character("Weekday") 
+imputed$dayofweek <- as.factor(imputed$dayofweek)
+print(imputed)
+```
+
+The dataset is grouped by Interval and Day Of Week, then irrelevant variables are dropped.The mean of each weekday/weekend - interval pairing is then computed
+
+```{r groupimputed}
+imputed <- group_by(imputed,interval,dayofweek)
+imputed <- imputed[,c(1,3,5)]
+imputed <- summarise_all(imputed,mean)
+library(lattice)
+with(imputed,xyplot(steps~interval|dayofweek, layout=c(1,2),type = "l"))
+```
+
+Based on the above, it seems that the individual has more varied steps over the weekends, but on weekdays the individual seems to clock a higher activity rate at around 8 to 9 am in the morning.
